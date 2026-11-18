@@ -1,42 +1,69 @@
 # app.py
 import streamlit as st
+import pandas as pd
 import plotly.express as px
-from simulation_engine import run_simulation
+from simulation_engine import calculate_benefits
 
-st.set_page_config(page_title="Climate Policy Simulator", page_icon="🌍", layout="wide")
+st.set_page_config(page_title="Nature-Based Solutions Benefits Simulator", page_icon="🌿", layout="wide")
 
-st.title("🌍 Climate Policy Game: Prototype")
-st.write("Adjust the policy levers below to see real-time impacts on global temperature and carbon emissions.")
+st.title("🌿 Nature-Based Solutions (NbS) Benefits Simulator")
+st.write("Adjust how favorable or heavily implemented each Nature-Based Solution is (0 = Strongly Disagree / None, 5 = Strongly Agree / Full Scale). Watch the projected benefits update instantly.")
 
-# Sidebar or main inputs for sliders
-st.sidebar.header("Policy Controls")
-carbon_tax = st.sidebar.slider("Carbon Price ($/ton)", 0, 150, 20)
-clean_subsidy = st.sidebar.slider("Clean Energy Subsidies (0-100)", 0, 100, 30)
+# Load NbS configuration from CSV
+@st.cache_data
+def load_nbs_data():
+    return pd.read_csv("nbs_data.csv")
 
-# Run simulation math from your separate engine file
-temp, emissions = run_simulation(carbon_tax, clean_subsidy)
+try:
+    df_nbs = load_nbs_data()
+except FileNotFoundError:
+    st.error("Missing nbs_data.csv file. Please ensure it is in your repository directory.")
+    st.stop()
 
-# Display core metrics
-col1, col2 = st.columns(2)
-with col1:
-    st.metric(
-        label="Projected Temperature in 2100", 
-        value=f"{temp} °C", 
-        delta=f"{round(temp - 3.5, 2)} °C vs Baseline"
+# Sidebar: Dynamic Sliders generated from CSV
+st.sidebar.header("🌱 NbS Policy Levers")
+st.sidebar.markdown("Set implementation / favorability (0–5):")
+
+user_scores = {}
+for index, row in df_nbs.iterrows():
+    # Each slider maps to an NbS ID from the CSV
+    user_scores[row['id']] = st.sidebar.slider(
+        label=row['nbs_name'],
+        min_value=0,
+        max_value=5,
+        value=int(row['default_score']),
+        help=f"Category: {row['category']}"
     )
-with col2:
-    st.metric(
-        label="Global CO2 Emissions", 
-        value=f"{emissions} Gt", 
-        delta=f"{round(emissions - 40.0, 1)} Gt vs Baseline"
-    )
+
+# Run simulation calculation
+benefits_dict = calculate_benefits(user_scores)
+
+# Format data for Plotly bar chart
+chart_df = pd.DataFrame({
+    "Benefit Category": list(benefits_dict.keys()),
+    "Projected Score (0-5 Scale)": list(benefits_dict.values())
+})
+
+# Display Metric Summary Cards
+col1, col2, col3, col4 = st.columns(4)
+cols = [col1, col2, col3, col4]
+for i, (benefit, score) in enumerate(benefits_dict.items()):
+    with cols[i]:
+        st.metric(label=benefit, value=f"{score} / 5.0")
 
 st.divider()
 
-# Interactive Chart
-chart_data = {
-    "Year": [2020, 2040, 2060, 2080, 2100],
-    "Emissions (Gt)": [35.0, emissions * 0.95, emissions * 0.85, emissions * 0.7, emissions]
-}
-fig = px.line(chart_data, x="Year", y="Emissions (Gt)", title="Simulated CO2 Emissions Pathway to 2100", markers=True)
+# Render Bar Graph (0 to 5 scale)
+fig = px.bar(
+    chart_df, 
+    x="Benefit Category", 
+    y="Projected Score (0-5 Scale)", 
+    text="Projected Score (0-5 Scale)",
+    title="Projected Impact of Implemented Nature-Based Solutions",
+    color="Benefit Category",
+    range_y=[0, 5.0]
+)
+fig.update_traces(texttemplate='%{text}', textposition='outside')
+fig.update_layout(showlegend=False, xaxis_title="", yaxis_title="Score (0-5)")
+
 st.plotly_chart(fig, use_container_width=True)
